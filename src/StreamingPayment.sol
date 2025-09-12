@@ -12,6 +12,8 @@ contract StreamingPayment is Ownable, ReentrancyGuard {
     error Streaming__AlreadyActive();
     error Streaming__InvalidInterval();
     error Streaming__InvalidIntervalAmount();
+    error Streaming__NotProvider();
+    error Streaming__ActiveServices();
 
     enum Role {
         Subscriber,
@@ -19,25 +21,26 @@ contract StreamingPayment is Ownable, ReentrancyGuard {
         Admin
     }
 
-    enum SubscriptionStatus {
+    enum Status {
         Active,
         Inactive
     }
 
     struct Subscription {
-        address subscriptionAddress;
+        address userAddress;
         address providerAddress;
-        uint256 amount;
-        uint256 totalBalance;
-        uint256 intervalDuration;
+        uint256 price;
+        uint256 duration;
         uint256 nextPayment;
-        SubscriptionStatus status;
+        Status ServiceStatus;
+        Status subcriptionStatus;
     }
 
     mapping(address => Role) public userRole;
     mapping(address => Subscription) public subscriptions;
-    mapping(address => SubscriptionStatus) public subscriptionStatus;
+    mapping(address => Status) public subscriptionStatus;
     mapping(address => bool) public subscriptionPerUser;
+    mapping(address => uint256) public hasActiveSubscriber;
 
     event MakeProvider(address user, Role userRole);
     event Subscribed(
@@ -48,6 +51,7 @@ contract StreamingPayment is Ownable, ReentrancyGuard {
         uint256 IntervalDuration,
         uint256 startInterval
     );
+    event ProviderDowngraded(address provider);
 
     uint256 public constant AMOUNT_PER_INTERVAL = 0.0002 ether;
     uint256 public constant AMOUNT_WHEN_BECOME_PROVIDER = 0.0001 ether;
@@ -71,42 +75,18 @@ contract StreamingPayment is Ownable, ReentrancyGuard {
         emit MakeProvider(msg.sender, Role.Provider);
     }
 
-    function SubscriptionCreate(
-        uint256 interval,
-        address provider
-    ) external payable {
+    function becomeSubscriber() external {
         require(
-            subscriptions[msg.sender].status == SubscriptionStatus.Inactive,
-            Streaming__AlreadyActive()
+            userRole[msg.sender] == Role.Provider,
+            Streaming__NotProvider()
         );
-        require(interval > 0, Streaming__InvalidInterval());
-        require(AMOUNT_PER_INTERVAL > 0, Streaming__InvalidIntervalAmount());
+        // Checking is there have any active service of this provider
         require(
-            msg.value == AMOUNT_PER_INTERVAL * interval,
-            Streaming__NotEnoughBalance()
-        );
-        require(
-            !subscriptionPerUser[msg.sender],
-            Streaming__AlreadySubscriber()
+            hasActiveSubscriber[msg.sender] == 0,
+            Streaming__ActiveServices()
         );
 
-        subscriptions[msg.sender] = Subscription({
-            subscriptionAddress: msg.sender,
-            providerAddress: provider,
-            amount: AMOUNT_PER_INTERVAL,
-            totalBalance: interval * AMOUNT_PER_INTERVAL,
-            intervalDuration: interval,
-            nextPayment: interval + block.timestamp,
-            status: SubscriptionStatus.Active
-        });
-
-        emit Subscribed(
-            msg.sender,
-            provider,
-            AMOUNT_PER_INTERVAL,
-            interval * AMOUNT_PER_INTERVAL,
-            interval,
-            block.timestamp
-        );
+        userRole[msg.sender] = Role.Subscriber;
+        emit ProviderDowngraded(msg.sender);
     }
 }
